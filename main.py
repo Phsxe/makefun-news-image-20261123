@@ -1,21 +1,19 @@
-"""Sum up 23 November 2026 world news in one image.
+"""A version: five horizontal bars summing up 23 November 2026 world news.
 
 Writes a 1024x1024 PNG to /output/entry.png (or $MAKEFUN_OUTPUT_DIR).
 Standard library only. No network. Deterministic: same bytes every run.
+Layout: 140px date header, then five equal bars, one story per bar.
 """
+import math
 import os
 import struct
 import zlib
 
 W, H = 1024, 1024
 
-WHITE = (255, 255, 255)
-NAVY = (15, 42, 68)
-GOLD = (232, 163, 23)
-LIGHT = (242, 244, 247)
-BORDER = (208, 215, 222)
-DARK = (16, 24, 40)
-GREY = (71, 84, 103)
+BG = (250, 248, 242)
+INK = (21, 38, 53)
+DIV = (207, 214, 216)
 
 # 5x7 bitmap font, '#' = on, '.' = off. Uppercase, digits and basic punctuation.
 FONT = {
@@ -63,6 +61,7 @@ FONT = {
     '%': ["##..#", "##.#.", "...#.", "..#..", ".#...", "#.#.#", "#..##"],
     '!': ["..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."],
     '?': [".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."],
+    "'": ["..#..", "..#..", "..#..", ".....", ".....", ".....", "....."],
 }
 
 buf = bytearray(W * H * 3)
@@ -78,6 +77,36 @@ def fill_rect(x, y, w, h, color):
     for yy in range(y, y + h):
         for xx in range(x, x + w):
             set_px(xx, yy, color)
+
+
+def fill_circle(cx, cy, r, color):
+    for yy in range(cy - r, cy + r + 1):
+        dx = int(math.sqrt(max(0, r * r - (yy - cy) * (yy - cy))))
+        for xx in range(cx - dx, cx + dx + 1):
+            set_px(xx, yy, color)
+
+
+def ring_circle(cx, cy, r, t, color):
+    for yy in range(cy - r - t, cy + r + t + 1):
+        for xx in range(cx - r - t, cx + r + t + 1):
+            d = math.hypot(xx - cx, yy - cy)
+            if r - t <= d <= r:
+                set_px(xx, yy, color)
+
+
+def fill_triangle(x0, y0, x1, y1, x2, y2, color):
+    top = min(y0, y1, y2)
+    bot = max(y0, y1, y2)
+    for yy in range(top, bot + 1):
+        xs = []
+        for (xa, ya, xb, yb) in ((x0, y0, x1, y1), (x1, y1, x2, y2), (x2, y2, x0, y0)):
+            if ya == yb:
+                continue
+            if (ya <= yy < yb) or (yb <= yy < ya):
+                xs.append(xa + (yy - ya) * (xb - xa) / (yb - ya))
+        if len(xs) >= 2:
+            for xx in range(int(min(xs)), int(max(xs)) + 1):
+                set_px(xx, yy, color)
 
 
 def draw_char(x, y, ch, scale, color):
@@ -118,61 +147,97 @@ def wrap_lines(text, scale, max_w):
     return lines
 
 
-def draw_wrapped(x, y, text, scale, color, max_w, line_h):
-    cy = y
-    for line in wrap_lines(text, scale, max_w):
-        draw_text(x, cy, line, scale, color)
-        cy += line_h
-    return cy
-
-
-# Stories for Monday 23 November 2026, checked across several news reports.
+# One story per bar: theme color, title lines, body text.
 STORIES = [
-    ("CLIMATE", (14, 124, 107), "COP31 TALKS COLLAPSE",
-     "UN climate talks in Antalya end with no deal. Longest COP ever, split over fossil fuels."),
-    ("MIDDLE EAST", (180, 35, 24), "IRAN HITS BAHRAIN",
-     "Iran strikes US positions and a civilian site in Bahrain. Two people hurt."),
-    ("UKRAINE", (23, 92, 211), "RUSSIAN STRIKES HIT CITIES",
-     "Strikes hit Dymer and Kryvyi Rih. Homes, a hospital and schools damaged."),
-    ("BLACK SEA", (6, 118, 71), "SEA DRONES HIT SHIPS",
-     "Ukraine says sea drones struck two Russian ships off Benghazi, Libya."),
-    ("MARKETS", (105, 65, 198), "CHIP STOCKS SLIDE",
-     "Asian chip shares fall after a Wall Street rout over AI spending. Kospi down 3.3%."),
-    ("MEXICO", (181, 71, 8), "CARTEL CHIEF CAUGHT",
-     "Mexico captures Sinaloa leader Chapo Isidro, a top FBI fugitive."),
+    ((40, 116, 91), ["COP31 ENDS WITHOUT DEAL"],
+     "Talks in Antalya, Turkiye, broke down over fossil fuels and climate finance."),
+    ((172, 73, 61), ["IRAN STRIKES BAHRAIN"],
+     "Iranian strikes hit US military positions and a civilian facility. Two people were injured."),
+    ((79, 96, 148), ["RUSSIA STRIKES", "UKRAINIAN CITIES"],
+     "The attacks hit Kryvyi Rih and damaged homes, hospitals and schools. Children were killed."),
+    ((153, 98, 19), ["ASIAN CHIP STOCKS FALL"],
+     "South Korea's Kospi closed down 3.3%. Samsung fell 3.1% and SK Hynix lost 2.5%."),
+    ((120, 83, 130), ["MEXICO ARRESTS", "CHAPO ISIDRO"],
+     "Authorities arrested Fausto Isidro Meza Flores, a Sinaloa cartel leader wanted by the FBI."),
 ]
 
 
+def draw_icon(kind, x, y, color):
+    """Simple 64x64 pictogram in the theme color, inside box (x, y)."""
+    if kind == 0:  # negotiation table with a blank agreement paper
+        fill_rect(x + 8, y + 6, 48, 22, BG)
+        for bx in range(x + 8, x + 56):
+            set_px(bx, y + 6, color)
+            set_px(bx, y + 27, color)
+        for by in range(y + 6, y + 28):
+            set_px(x + 8, by, color)
+            set_px(x + 55, by, color)
+        fill_rect(x + 4, y + 32, 56, 6, color)
+        fill_rect(x + 12, y + 38, 5, 20, color)
+        fill_rect(x + 47, y + 38, 5, 20, color)
+    elif kind == 1:  # island with a location pin
+        fill_circle(x + 28, y + 40, 20, color)
+        fill_rect(x + 8, y + 40, 40, 8, color)
+        fill_circle(x + 38, y + 20, 9, color)
+        fill_triangle(x + 30, y + 24, x + 46, y + 24, x + 38, y + 40, color)
+        fill_circle(x + 38, y + 20, 3, BG)
+    elif kind == 2:  # city buildings
+        fill_rect(x + 6, y + 30, 16, 28, color)
+        fill_rect(x + 26, y + 14, 16, 44, color)
+        fill_rect(x + 46, y + 24, 14, 34, color)
+    elif kind == 3:  # chip with a down arrow
+        fill_rect(x + 14, y + 6, 28, 28, color)
+        fill_rect(x + 22, y + 14, 12, 12, BG)
+        for px in (18, 28, 38):
+            fill_rect(x + px, y + 2, 4, 4, color)
+            fill_rect(x + px, y + 34, 4, 4, color)
+        fill_rect(x + 10, y + 14, 4, 4, color)
+        fill_rect(x + 10, y + 24, 4, 4, color)
+        fill_rect(x + 42, y + 14, 4, 4, color)
+        fill_rect(x + 42, y + 24, 4, 4, color)
+        fill_rect(x + 26, y + 40, 6, 12, color)
+        fill_triangle(x + 18, y + 50, x + 38, y + 50, x + 28, y + 60, color)
+    else:  # handcuffs
+        ring_circle(x + 19, y + 30, 13, 4, color)
+        ring_circle(x + 45, y + 30, 13, 4, color)
+        fill_rect(x + 28, y + 14, 8, 6, color)
+
+
+def draw_bar(idx, color, title_lines, body):
+    bar_y = 140 + idx * 176
+    fill_rect(0, bar_y, 10, 176, color)
+    draw_icon(idx, 22, bar_y + 56, color)
+    text_x = 112
+    text_w = 888
+    title_scale = 6
+    title_lh = 48
+    if len(title_lines) > 1:
+        body_scale, body_lh = 3, 24
+    else:
+        body_scale, body_lh = 4, 31
+    body_lines = wrap_lines(body, body_scale, text_w)
+    content_h = len(title_lines) * title_lh + 8 + len(body_lines) * body_lh
+    cy = bar_y + (176 - content_h) // 2
+    for line in title_lines:
+        draw_text(text_x, cy, line, title_scale, INK)
+        cy += title_lh
+    cy += 8
+    for line in body_lines:
+        draw_text(text_x, cy, line, body_scale, INK)
+        cy += body_lh
+    if idx < 4:
+        fill_rect(0, bar_y + 174, W, 2, DIV)
+
+
 def draw():
-    fill_rect(0, 0, W, H, WHITE)
-    # Header
-    fill_rect(0, 0, W, 170, NAVY)
-    fill_rect(0, 170, W, 6, GOLD)
-    draw_text(32, 28, "23 NOVEMBER 2026", 5, WHITE)
-    draw_text(32, 108, "WORLD NEWS IN ONE IMAGE", 3, (203, 213, 225))
-    # Panels: 2 columns x 3 rows
-    px0, py0 = 32, 200
-    pw, ph = 468, 243
-    gx, gy = 24, 20
-    for idx, (cat, color, head, body) in enumerate(STORIES):
-        col = idx % 2
-        row = idx // 2
-        x = px0 + col * (pw + gx)
-        y = py0 + row * (ph + gy)
-        fill_rect(x, y, pw, ph, LIGHT)
-        # border
-        for bx in range(x, x + pw):
-            set_px(bx, y, BORDER)
-            set_px(bx, y + ph - 1, BORDER)
-        for by in range(y, y + ph):
-            set_px(x, by, BORDER)
-            set_px(x + pw - 1, by, BORDER)
-        fill_rect(x, y, 10, ph, color)
-        draw_text(x + 24, y + 18, cat, 2, color)
-        draw_wrapped(x + 24, y + 52, head, 3, DARK, pw - 48, 26)
-        draw_wrapped(x + 24, y + 122, body, 2, GREY, pw - 48, 20)
-    # Footer
-    draw_text(32, 978, "SIX STORIES THAT SHAPED THE DAY - REPORTED 23 NOV 2026", 2, GREY)
+    fill_rect(0, 0, W, H, BG)
+    # Date header, 140px tall.
+    date = "23 NOVEMBER 2026"
+    dw = text_width(date, 9)
+    draw_text((W - dw) // 2, 38, date, 9, INK)
+    fill_rect(0, 137, W, 3, DIV)
+    for idx, (color, title_lines, body) in enumerate(STORIES):
+        draw_bar(idx, color, title_lines, body)
 
 
 def png_bytes():
